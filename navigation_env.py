@@ -49,6 +49,46 @@ class ContactDetector(contactListener):
             if self.env.goal == contact.fixtureA.body or self.env.goal == contact.fixtureB.body:
                 self.env.achieve_goal = True
 
+def MapGoal(goalpos):
+    goal_0 = (denormalize_position([0.2, 0.2], W, H))
+    goal_1 = (denormalize_position([0.2, 0.8], W, H))
+    goal_2 = (denormalize_position([0.8, 0.8], W, H))
+    goal_3 = (denormalize_position([0.8, 0.2], W, H))
+    goal_4 = (denormalize_position([0.0756, 0.5], W, H))
+    goal_5 = (denormalize_position([0.5, 0.0756], W, H))
+    goal_6 = (denormalize_position([0.924, 0.5], W, H))
+    goal_7 = (denormalize_position([0.5, 0.924], W, H))
+
+    if (goalpos[0] == goal_0[0]) & (goalpos[1] == goal_0[1]):
+        return [1,0,0,0,0,0,0,0]
+    elif (goalpos[0] == goal_1[0]) & (goalpos[1] == goal_1[1]):
+        return [0,1,0,0,0,0,0,0]
+    elif (goalpos[0] == goal_2[0]) & (goalpos[1] == goal_2[1]):
+        return [0,0,1,0,0,0,0,0]
+    elif (goalpos[0] == goal_3[0]) & (goalpos[1] == goal_3[1]):
+        return [0,0,0,1,0,0,0,0]
+    elif (goalpos[0] == goal_4[0]) & (goalpos[1] == goal_4[1]):
+        return [0,0,0,0,1,0,0,0]
+    elif (goalpos[0] == goal_5[0]) & (goalpos[1] == goal_5[1]):
+        return [0,0,0,0,0,1,0,0]
+    elif (goalpos[0] == goal_6[0]) & (goalpos[1] == goal_6[1]):
+        return [0,0,0,0,0,0,1,0]
+    elif (goalpos[0] == goal_7[0]) & (goalpos[1] == goal_7[1]):
+        return [0,0,0,0,0,0,0,1]
+    else:
+        print('Mapping Goal Error!')
+
+def Goal_change(goalpos):
+    # if goal == 0
+    goal_0 = (denormalize_position([0.2, 0.2], W, H))
+    goal_5 = (denormalize_position([0.5, 0.0756], W, H))
+    if (goalpos[0] == goal_0[0]) & (goalpos[1] == goal_0[1]):
+        return goal_5
+    # if goal == 5
+    elif (goalpos[0] == goal_5[0]) & (goalpos[1] == goal_5[1]):
+        return goal_0
+    else:
+        print('goal error!')
 
 class NavigationEnvDefault(gym.Env, EzPickle):
     def __init__(self, task_args, max_obs_range=3,  max_speed=2, initial_speed=2, **kwargs):
@@ -57,7 +97,9 @@ class NavigationEnvDefault(gym.Env, EzPickle):
             'render.modes': ['human', 'rgb_array'],
             'video.frames_per_second': FPS
         }
-
+        ID = MapGoal(task_args['Goal'])
+        self.ID = ID
+        
         '''
         dictionary representation of observation 
         it is useful handling dict space observation, 
@@ -70,15 +112,15 @@ class NavigationEnvDefault(gym.Env, EzPickle):
             'lidar': gym.spaces.Box(low=0, high=1, shape=(8,)),
             'energy': gym.spaces.Box(low=0, high=1, shape=(1,)),
             'obstacle_speed': gym.spaces.Box(low=-1, high=1, shape=(len(task_args['OBSTACLE_POSITIONS']),)),
-            'obstacle_position': gym.spaces.Box(low=0, high=1, shape=(2 * len(task_args['OBSTACLE_POSITIONS']),))
+            'obstacle_position': gym.spaces.Box(low=0, high=1, shape=(2 * len(task_args['OBSTACLE_POSITIONS']),)),
+            'ID' : gym.spaces.Box(low=0, high=1, shape=(8,))
         }
 
         # meta data keys. It is used to force order to get observation.
         # We may use ordered dict, but saving key with list is more economic
         # rather than create ordered dict whenever steps proceed
         self.observation_meta_data_keys = ['position', 'distance', 'lidar', 'energy', 'obstacle_speed',
-                                           'obstacle_position']
-
+                                           'obstacle_position', 'ID']
         self._ezpickle_args = ( )
         self._ezpickle_kwargs = {}
         self.np_random = 7777
@@ -112,11 +154,14 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         self.task_args = task_args
         self.game_over = False
         self.prev_shaping = None
+        self.flag = True
+        self.count = 0
+
 
         # debug
         self.action = None
         self.obs_queue = deque(maxlen=10)
-
+    
     def set_random_init(self, random_init: bool):
         self.random_init = random_init
 
@@ -136,12 +181,17 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         for k in self.observation_meta_data:
             val = self.observation_meta_data[k]
             size += val.shape[0]
+
         return spaces.Box(-np.inf, np.inf, shape=(size, ), dtype=np.float32)
 
     @property
     def action_space(self):
         # Action is two floats [vertical speed, horizontal speed].
         return spaces.Box(-1, 1, shape=(2,), dtype=np.float32)
+    
+    @property
+    def distance(self):
+        return np.linalg.norm(self.goal.position - self.drone.position)
 
     def seed(self, seed=7777):
         self.np_random, seed = seeding.np_random(seed)
@@ -154,24 +204,27 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         y_pos = x[1]
         theta = np.arctan(y_pos/x_pos)
         return np.asarray([r, theta])
-
+    
     def dict_observation(self):
         position = normalize_position(self.drone.position, W, H)
         distance = np.linalg.norm(normalize_position(self.drone.position, W, H) - (normalize_position(self.goal.position, W, H)))
         lidar = [l.fraction for l in self.lidar]
         obstacle_speed = self.obstacles.speeds
         obstacle_position = self.obstacles.positions(self.drone.position)
+        ID = self.ID
+        
         dict_obs = {
             'position':position,
             'distance': distance,
             'lidar': lidar,
             'energy': self.energy,
             'obstacle_speed': obstacle_speed,
-            'obstacle_position':obstacle_position
+            'obstacle_position':obstacle_position,
+            'ID' : ID,
         }
 
         return dict_obs
-
+    
     def array_observation(self, dict_obs=None):
         if dict_obs is None:
             dict_obs = self.dict_observation()
@@ -180,7 +233,7 @@ class NavigationEnvDefault(gym.Env, EzPickle):
 
         for k in self.observation_meta_data_keys:
             obs.append(np.asarray(dict_obs[k], dtype=np.float32).flatten())
-
+        
         return np.concatenate(obs)
 
     def _destroy(self):
@@ -234,11 +287,37 @@ class NavigationEnvDefault(gym.Env, EzPickle):
             else:
                 break
         return self.drone.position
+    
 
     def _build_goal(self):
+         
+        #ok edit
+        ''' 
+        import random
+        random_task = random.randint(0, 1)
+        print('random_task' , random_task)
+        # if odd
+        if random_task == 0:
+            #self.flag = True
+            goal_pos = self.task_args['Goal']
+        else:
+            #self.flag = False
+            goal_pos = Goal_change(self.task_args['Goal'])
+         
+        ##divide here##        
+        if self.flag = True:
+            goal_pos = self.task_args['Goal']
+            self.flag = False
+        else:
+            goal_pos = Goal_change(self.task_args['Goal'])
+            self.flag = True
+        print('after_flag : ', self.flag)
+        '''
         goal_pos = self.task_args['Goal']
+        #print('goal_pos', goal_pos)
+    
         self.goal = self.world.CreateDynamicBody(position=goal_pos, angle=0.0,
-                                                fixtures=fixtureDef(shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in DRONE_POLY]),
+                                                fixtures=fixtureDef(shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in GOAL_POLY]),
                                                                     density=5.0, friction=0.1, categoryBits=0x002,
                                                                     maskBits=0x0010, restitution=0.0))
         self.goal.color1 = (0., 0.5, 0)
@@ -276,7 +355,6 @@ class NavigationEnvDefault(gym.Env, EzPickle):
             else:
                 self.scores.append(0)
 
-
         self.game_over = False
         self.prev_shaping = None
         self.achieve_goal = False
@@ -302,6 +380,14 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         # create obstacles
         self.obstacles.build_obstacles()
         drone_pos = self._build_drone()
+        
+        # ok edit
+        # goal change flag
+        #task_name = str(self)
+        #task_id_loc = task_name.rfind('Task')
+        #task_id_loc = task_id_loc + len('Task')
+        #task_id = task_name[task_id_loc]
+        
         # create goal
         np.random.seed(np.random.randint(low=0, high=100000))
         self._build_goal()
@@ -310,6 +396,8 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         self.drawlist = [self.obs_range_plt, self.drone, self.goal] + self.walls + self.obstacles.dynamic_bodies
         self._observe_lidar(drone_pos)
         self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
+        
+        self.prev_distance = self.distance
         return np.copy(self.array_observation())
 
     def step(self, action: np.iterable):
@@ -322,10 +410,12 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         self.energy -= 1e-3
         pos = np.array(self.drone.position)
         self._observe_lidar(pos)
-        reward = 0
         done = False
         if self.collision_done:
             done = self.game_over
+        reward = self.prev_distance - self.distance
+        self.prev_distance = self.distance 
+
 
         info = {}
         if self.energy <= 0:
@@ -384,7 +474,7 @@ class NavigationEnvAcc(NavigationEnvDefault):
         self.timesteps = 0
         self.prev_distance = 0
         self.randomize_goal = False
-
+        
     def dict_observation(self):
         dict_obs = super().dict_observation()
         velocity = self.drone.linearVelocity
@@ -447,26 +537,34 @@ class NavigationEnvAcc(NavigationEnvDefault):
 class NavigationEnvAccLidarObs(NavigationEnvAcc):
     def __init__(self, task_args, max_obs_range=3, max_speed=2, initial_speed=1, **kwargs):
         super().__init__(task_args, max_obs_range, max_speed, initial_speed, **kwargs)
+        goalpos = MapGoal(task_args['Goal'])
+        self.ID = goalpos
+
         self.observation_meta_data = {
             'position': gym.spaces.Box(np.array([0, 0]), np.array([W, H]), dtype=np.float32),
             'distance': gym.spaces.Box(np.array([0]), np.array([np.sqrt(W ** 2 + H ** 2)]), dtype=np.float32),
             'lidar': gym.spaces.Box(low=0, high=1, shape=(8,)),
             'energy': gym.spaces.Box(low=0, high=1, shape=(1,)),
-            'velocity': gym.spaces.Box(np.array([-1, -1]), np.array([1, 1]), dtype=np.float32)
+            'velocity': gym.spaces.Box(np.array([-1, -1]), np.array([1, 1]), dtype=np.float32),
+            'ID' : gym.spaces.Box(low=0, high=1, shape=(8,)),
         }
-        self.observation_meta_data_keys = ['position', 'lidar', 'energy', 'distance', 'velocity']
+
+        self.observation_meta_data_keys = ['position', 'lidar', 'energy', 'distance', 'velocity', 'ID']
 
     def dict_observation(self):
         position = normalize_position(self.drone.position, W, H)
         distance = np.linalg.norm(normalize_position(self.drone.position, W, H) - (normalize_position(self.goal.position, W, H)))
         lidar = [l.fraction for l in self.lidar]
         velocity = self.drone.linearVelocity
+        ID = self.ID
+        
         dict_obs = {
             'position': position,
             'distance': distance,
             'lidar': lidar,
             'energy': self.energy,
-            'velocity': velocity
+            'velocity': velocity,
+            'ID': ID,
         }
         return dict_obs
 
