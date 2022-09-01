@@ -317,7 +317,7 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         #print('goal_pos', goal_pos)
     
         self.goal = self.world.CreateDynamicBody(position=goal_pos, angle=0.0,
-                                                fixtures=fixtureDef(shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in GOAL_POLY]),
+                                                fixtures=fixtureDef(shape=polygonShape(vertices=[(x / SCALE, y / SCALE) for x, y in DRONE_POLY]),
                                                                     density=5.0, friction=0.1, categoryBits=0x002,
                                                                     maskBits=0x0010, restitution=0.0))
         self.goal.color1 = (0., 0.5, 0)
