@@ -173,7 +173,7 @@ class NavigationEnvDefault(gym.Env, EzPickle):
         if self.random_init:
             return denormalize_position(np.random.random(2) * 0.8 + 0.1, W, H)
         else:
-            return denormalize_position([0.5, 0.5], W ,H)
+            return denormalize_position([0.5, 0.924], W ,H)
 
     @property
     def observation_space(self):
